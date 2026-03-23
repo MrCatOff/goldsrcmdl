@@ -163,17 +163,16 @@ class SequenceNormalizer:
             return text
 
         lookup = text.strip().lower()
-        # Return the mapped value if found, else the original text
-        return self.fix_map.get(lookup, text)
+        return str(self.fix_map.get(lookup, text))
 
 
 class MDLCombiner:
     def __init__(self, configuration):
-        self.compiler = configuration.compiler
-        self.input_dir = configuration.input_dir
-        self.build_dir = configuration.build_dir
-        self.temp_dir = configuration.temp_dir
-        self.output_mdl = configuration.output_mdl
+        self.compiler = str(configuration.compiler)
+        self.input_dir = str(configuration.input_dir)
+        self.build_dir = str(configuration.build_dir)
+        self.temp_dir = str(configuration.temp_dir)
+        self.output_mdl = str(configuration.output_mdl)
         self.output_qc = configuration.output_qc
         self.output_ini = configuration.output_ini
         self.mode = configuration.mode
@@ -323,7 +322,7 @@ class MDLCombiner:
         os.makedirs(self.temp_dir)
 
         weapon_folders = [f for f in os.listdir(self.input_dir) if os.path.isdir(os.path.join(self.input_dir, f))]
-        weapon_folders.sort(key=str.lower)
+        weapon_folders.sort()
 
         if not weapon_folders:
             print(f"Folder {self.input_dir} does not contain any weapons.")
@@ -388,7 +387,7 @@ class MDLCombiner:
                     combined_sequence['smdfiles'] = [folder_name + "/" + item for item in sequence['smdfiles']]
                     combined_qc.sequences.append(combined_sequence)
 
-                    self.model_configuration[weapon_entity][normalize_name] = seq_last_idx
+                    self.model_configuration[weapon_entity][normalize_name] = str(seq_last_idx)
                     seq_last_idx += 1
                 qc.sequences = sequences
                 textures = []
@@ -476,7 +475,7 @@ class MDLCombiner:
             folder_name = weapon_folders[w_idx]
             weapon_name = folder_name.replace('v_', '')
             weapon_entity = f"weapon_{weapon_name}"
-            self.model_configuration["BODY"][weapon_entity] = body_val
+            self.model_configuration["BODY"][weapon_entity] = str(body_val)
 
         try:
             subprocess.run([os.path.abspath(self.compiler), self.output_qc], cwd=self.temp_dir)
