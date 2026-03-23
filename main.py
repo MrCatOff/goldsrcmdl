@@ -199,7 +199,6 @@ class MDLCombiner:
 
         for w_idx, folder_name in enumerate(weapon_folders):
             work_path = os.path.join(self.input_dir, folder_name)
-            print(work_path)
             for smd_file in glob.glob(os.path.join(work_path, "**/*.smd"), recursive=True):
                 smd = SMDParser(smd_file, True)
                 nodes = smd.nodes
@@ -363,6 +362,7 @@ class MDLCombiner:
                 self.model_configuration[weapon_entity] = {}
                 self.model_configuration["GENERAL"][weapon_entity] = f"{folder_name}.mdl"
 
+            local_qc = list()
             for qc_file in qc_files:
                 print(f"Processing QC file: {qc_file}")
                 qc = QCParser(qc_file, True, self.mode)
@@ -433,13 +433,20 @@ class MDLCombiner:
                     weapon_qc.write(str(qc))
 
                 qc.patch_bones(f"_TYPE{index}", self.bone_manager.is_shared_bone, conflict_set[index])
-                models_qc.append(qc)
+                local_qc.append(qc)
 
+            patched_bones = dict()
             for smd_path in glob.glob(os.path.join(temp_path, "**/*.smd"), recursive=True):
                 smd = SMDParser(smd_path, True, self.mode)
-                smd.patch_bones(f"_TYPE{index}", self.bone_manager.is_shared_bone, conflict_set[index])
+                patch_bones = smd.patch_bones(f"_TYPE{index}", self.bone_manager.is_shared_bone, conflict_set[index])
+                patched_bones = patched_bones | patch_bones
+
                 with open(smd_path, "w") as f:
                     f.write(str(smd))
+
+            for qc in local_qc:
+                qc.patch_bones(f"_TYPE{index}", self.bone_manager.is_shared_bone, conflict_set[index], patched_bones)
+                models_qc.append(qc)
 
         max_parts = max([len(d.bodygroups) for d in models_qc])
         for i in range(max_parts):
@@ -460,9 +467,8 @@ class MDLCombiner:
                 else:
                     combined_qc.bodygroups[index]['models'].append({"type": "blank"})
 
-        # TODO: Need fix hitboxe rename bone before apply this
-        # MDLCombiner.normalize_and_merge_hitboxes(combined_qc, models_qc)
-        # MDLCombiner.normalize_and_merge_attachments(combined_qc, models_qc)
+        MDLCombiner.normalize_and_merge_hitboxes(combined_qc, models_qc)
+        MDLCombiner.normalize_and_merge_attachments(combined_qc, models_qc)
 
         with open(os.path.join(self.temp_dir, self.output_qc), 'w') as main_qc:
             main_qc.write(str(combined_qc))

@@ -89,8 +89,9 @@ class SMDParser:
 
     def patch_bones(self, bone_suffix, is_shared_bone_func, conflict_set=None):
         """Applies bone patching logic directly to the parsed data structures."""
+        patched_nodes = dict()
         if not self.nodes:
-            return
+            return patched_nodes
 
         # Default to an empty set if no conflict_set is provided
         if conflict_set is None:
@@ -99,7 +100,7 @@ class SMDParser:
         if self.mode != "v":
             for n in self.nodes:
                 n["name"] += bone_suffix
-            return
+            return patched_nodes
 
         bone01_id = next((n["id"] for n in self.nodes if n["name"].lower() == "bone01"), None)
         master_root_id = next((n["parent"] for n in self.nodes if n["id"] == bone01_id), None)
@@ -109,6 +110,7 @@ class SMDParser:
         if not need_inject_root:
             for n in self.nodes:
                 if n["id"] == master_root_id:
+                    patched_nodes[n["name"]] = "Universal_Root"
                     n["name"] = "Universal_Root"
                     n["parent"] = -1
                     break
@@ -120,6 +122,7 @@ class SMDParser:
         for n in self.nodes:
             name_low = n["name"].lower()
             if not is_shared_bone_func(name_low) or name_low in conflict_set:
+                patched_nodes[n["name"]] = f'{n["name"]}{bone_suffix}'
                 n["name"] += bone_suffix
 
         # Inject Universal_Root if missing
@@ -184,6 +187,8 @@ class SMDParser:
             for v in tri["vertices"]:
                 if v["parent_bone"] in old_to_new:
                     v["parent_bone"] = old_to_new[v["parent_bone"]]
+
+        return patched_nodes
 
     # def patch_bones(self, bone_suffix, is_shared_bone_func):
     #     """Applies bone patching logic directly to the parsed data structures."""
