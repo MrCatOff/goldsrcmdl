@@ -330,12 +330,6 @@ class MDLCombiner:
         print(f"Found {len(weapon_folders)} weapon folders.\n")
 
         seq_last_idx = 0
-        combined_qc = QCParser("", False, self.mode)
-        combined_qc.modelname = self.output_mdl
-        combined_qc.cd = "."
-        combined_qc.cdtexture = "."
-        combined_qc.scale = 1.0
-        combined_qc.other_commands.append(['$cliptotextures'])
 
         models_qc = []
 
@@ -385,7 +379,6 @@ class MDLCombiner:
 
                     combined_sequence = copy.copy(sequence)
                     combined_sequence['smdfiles'] = [folder_name + "/" + item for item in sequence['smdfiles']]
-                    combined_qc.sequences.append(combined_sequence)
 
                     self.model_configuration[weapon_entity][normalize_name] = str(seq_last_idx)
                     seq_last_idx += 1
@@ -449,26 +442,8 @@ class MDLCombiner:
                 models_qc.append(qc)
 
         max_parts = max([len(d.bodygroups) for d in models_qc])
-        for i in range(max_parts):
-            combined_qc.bodygroups.append({
-                "name": f"body_group_{i}",
-                "models": [],
-            })
 
-        for qc in models_qc:
-            base_name = os.path.basename(os.path.dirname(qc.filepath))
-
-            for index, body_group in enumerate(combined_qc.bodygroups):
-                if 0 <= index < len(qc.bodygroups):
-                    for i, model in enumerate(qc.bodygroups[index]['models']):
-                        if "smd" in model:
-                            model['smd'] = f"{base_name}/{model['smd']}"
-                        combined_qc.bodygroups[index]['models'].append(model)
-                else:
-                    combined_qc.bodygroups[index]['models'].append({"type": "blank"})
-
-        MDLCombiner.normalize_and_merge_hitboxes(combined_qc, models_qc)
-        MDLCombiner.normalize_and_merge_attachments(combined_qc, models_qc)
+        combined_qc = QCParser.merge(self.output_mdl, models_qc)
 
         with open(os.path.join(self.temp_dir, self.output_qc), 'w') as main_qc:
             main_qc.write(str(combined_qc))

@@ -1,4 +1,6 @@
 import shlex
+import os
+import copy
 
 
 class QCParser:
@@ -33,23 +35,16 @@ class QCParser:
         # Patch Attachments (Format: [name, bone_name, x, y, z, ...])
         for att in self.attachments:
             if len(att) > 1:
-                name_low = att[1].lower()
                 bone_name = att[1]
                 if bone_name in patched_bones:
                     att[1] = patched_bones[bone_name]
-                # if not is_shared_bone_func(name_low) or name_low in conflict_set or self.mode != "v":
-                #     att[1] = bone_name + bone_suffix
 
         # Patch Hitboxes (Format: [group, bone_name, minX, minY, minZ, maxX, maxY, maxZ])
         for hb in self.hitboxes:
             if len(hb) > 1:
-                name_low = hb[1].lower()
                 bone_name = hb[1]
                 if bone_name in patched_bones:
                     hb[1] = patched_bones[bone_name]
-                    # print("Patched bone", bone_name, patched_bones[bone_name])
-                # if not is_shared_bone_func(name_low) or name_low in conflict_set or self.mode != "v":
-                #     hb[1] = bone_name + bone_suffix
 
     def parse(self):
         if not self.filepath:
@@ -264,3 +259,85 @@ class QCParser:
                 lines.append("}\n")
 
         return "\n".join(lines).strip()
+
+    @staticmethod
+    def merge(master_model_name, list_of_qcs):
+        """
+        Creates a single unified QCParser by merging multiple child QC files.
+        Automatically fixes sequence/bodygroup filepaths, pads bodygroups,
+        and normalizes hitboxes and attachments.
+        """
+        master = QCParser()
+        master.modelname = master_model_name
+        master.cd = "."
+        master.cdtexture = "."
+        master.scale = 1.0
+        master.other_commands = [['$cliptotextures']]
+
+        unique_hitboxes = {}
+        unique_attachments = {}
+
+        # 1. Determine max bodygroups for padding
+        max_parts = max([len(qc.bodygroups) for qc in list_of_qcs], default=0)
+        for i in range(max_parts):
+            master.bodygroups.append({
+                "name": f"body_group_{i}",
+                "models": [],
+            })
+
+        for qc in list_of_qcs:
+            # Get the folder name (e.g., "v_ak47") from the filepath to prefix SMDs
+            base_name = os.path.basename(os.path.dirname(qc.filepath)) if qc.filepath else ""
+            prefix = f"{base_name}/" if base_name else ""
+
+            # 2. Merge Sequences (Fixing paths to point to correct sub-directories)
+            for seq in qc.sequences:
+                new_seq = copy.deepcopy(seq)
+                new_seq['smdfiles'] = [f"{prefix}{smd}" for smd in new_seq['smdfiles']]
+                master.sequences.append(new_seq)
+
+            # 3. Merge Bodygroups (With blank padding for missing parts)
+            for index, master_bg in enumerate(master.bodygroups):
+                if index < len(qc.bodygroups):
+                    for model in qc.bodygroups[index]['models']:
+                        new_model = copy.deepcopy(model)
+                        if "smd" in new_model:
+                            new_model['smd'] = f"{prefix}{new_model['smd']}"
+                        master_bg['models'].append(new_model)
+                else:
+                    master_bg['models'].append({"type": "blank"})
+
+            # 4. Collect Hitboxes (Deduplicate)
+            for hb in qc.hitboxes:
+                if len(hb) > 1:
+                    bone_lower = hb[1].lower()
+                    if bone_lower not in unique_hitboxes:
+                        unique_hitboxes[bone_lower] = list(hb)
+
+            # 5. Collect Attachments (Deduplicate)
+            for att in qc.attachments:
+                if len(att) > 0:
+                    att_lower = att[0].lower()
+                    if att_lower not in unique_attachments:
+                        unique_attachments[att_lower] = list(att)
+
+        # 6. Normalize Hitbox Bone Mappings
+        for bone_lower, hb in unique_hitboxes.items():
+            if "head" in bone_lower or "neck" in bone_lower:
+                hb[0] = "1"
+            elif "spine" in bone_lower or "chest" in bone_lower:
+                hb[0] = "2"
+            elif "pelvis" in bone_lower or "stomach" in bone_lower or "hip" in bone_lower:
+                hb[0] = "3"
+            elif "left" in bone_lower or "_l" in bone_lower or "l_" in bone_lower:
+                hb[0] = "4" if any(x in bone_lower for x in ["arm", "hand", "shoulder"]) else "6"
+            elif "right" in bone_lower or "_r" in bone_lower or "r_" in bone_lower:
+                hb[0] = "5" if any(x in bone_lower for x in ["arm", "hand", "shoulder"]) else "7"
+            else:
+                hb[0] = "0"
+            master.hitboxes.append(hb)
+
+        # 7. Apply Unique Attachments
+        master.attachments = list(unique_attachments.values())
+
+        return master
