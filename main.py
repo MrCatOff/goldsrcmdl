@@ -1,5 +1,6 @@
 import argparse
 import configparser
+import subprocess
 import os
 import re
 import shutil
@@ -181,7 +182,8 @@ class MDLCombiner:
         self.model_configuration = {
             "GENERAL": {
                 "model": self.output_mdl,
-            }
+            },
+            "BODY": {}
         }
 
     def validate(self):
@@ -321,6 +323,7 @@ class MDLCombiner:
         os.makedirs(self.temp_dir)
 
         weapon_folders = [f for f in os.listdir(self.input_dir) if os.path.isdir(os.path.join(self.input_dir, f))]
+        weapon_folders.sort(key=str.lower)
 
         if not weapon_folders:
             print(f"Folder {self.input_dir} does not contain any weapons.")
@@ -339,6 +342,7 @@ class MDLCombiner:
         models_qc = []
 
         conflict_set = self.analyze_bone_hierarchies(weapon_folders)
+        num_weapons = len(weapon_folders)
 
         for index, folder_name in enumerate(weapon_folders):
             print(f"Processing folder: {folder_name}")
@@ -457,11 +461,29 @@ class MDLCombiner:
                 else:
                     combined_qc.bodygroups[index]['models'].append({"type": "blank"})
 
+        # TODO: Need fix hitboxe rename bone before apply this
         # MDLCombiner.normalize_and_merge_hitboxes(combined_qc, models_qc)
         # MDLCombiner.normalize_and_merge_attachments(combined_qc, models_qc)
 
         with open(os.path.join(self.temp_dir, self.output_qc), 'w') as main_qc:
             main_qc.write(str(combined_qc))
+
+        for w_idx in range(num_weapons):
+            body_val, mult = 0, 1
+            for p_idx in range(max_parts):
+                body_val += w_idx * mult
+                mult *= num_weapons
+            folder_name = weapon_folders[w_idx]
+            weapon_name = folder_name.replace('v_', '')
+            weapon_entity = f"weapon_{weapon_name}"
+            self.model_configuration["BODY"][weapon_entity] = body_val
+
+        try:
+            subprocess.run([os.path.abspath(self.compiler), self.output_qc], cwd=self.temp_dir)
+            if os.path.exists(os.path.join(self.temp_dir, self.output_mdl)):
+                shutil.move(os.path.join(self.temp_dir, self.output_mdl), os.path.join(self.build_dir, self.output_mdl))
+        except:
+            print("Failed to compile model, please compile manual")
         self.create_ini()
 
     def create_ini(self):
