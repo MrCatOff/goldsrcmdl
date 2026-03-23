@@ -1,0 +1,5 @@
+.venv/
+.idea/
+storage/decompiled/*
+storage/temp/*
+storage/build/*
