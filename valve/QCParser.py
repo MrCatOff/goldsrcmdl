@@ -17,6 +17,7 @@ class QCParser:
         self.attachments = []
         self.hitboxes = []
         self.other_commands = []
+        self.texturegroups = []
         if parse:
             self.parse()
 
@@ -45,6 +46,18 @@ class QCParser:
                 bone_name = hb[1]
                 if bone_name in patched_bones:
                     hb[1] = patched_bones[bone_name]
+
+    def add_skin_family(self, skin_list, group_name="skin_families"):
+        """
+        Adds a new skin family to the model.
+        skin_list should be a list of texture names, e.g., ["ak47_blue.bmp", "hands_glove.bmp"]
+        """
+        for tg in self.texturegroups:
+            if tg["name"] == group_name:
+                tg["skins"].append(skin_list)
+                return
+        # If the group doesn't exist yet, create it and add the first skin (base) and the new skin
+        self.texturegroups.append({"name": group_name, "skins": [skin_list]})
 
     def parse(self):
         if not self.filepath:
@@ -178,6 +191,24 @@ class QCParser:
                 self.attachments.append(tokens[1:])
             elif cmd == "$hbox":
                 self.hitboxes.append(tokens[1:])
+            elif cmd == "$texturegroup":
+                tg_name = tokens[1] if len(tokens) > 1 else "skinfamilies"
+                skins = []
+                i += 1
+                while i < len(lines):
+                    bg_line = lines[i].strip()
+                    if "//" in bg_line: bg_line = bg_line.split("//")[0].strip()
+                    if not bg_line: i += 1; continue
+                    if bg_line == "{": i += 1; continue
+                    if bg_line == "}": break
+
+                    # Read the textures inside the { } wrapper
+                    if bg_line.startswith("{") and bg_line.endswith("}"):
+                        inner_content = bg_line[1:-1].strip()
+                        skin_tokens = shlex.split(inner_content)
+                        skins.append(skin_tokens)
+                    i += 1
+                self.texturegroups.append({"name": tg_name, "skins": skins})
             else:
                 self.other_commands.append(tokens)
 
@@ -214,6 +245,13 @@ class QCParser:
                 elif model["type"] == "blank":
                     lines.append('\tblank')
             lines.append("}")
+
+        for tg in self.texturegroups:
+            lines.append(f'$texturegroup "{tg["name"]}"\n{{')
+            for skin in tg["skins"]:
+                skin_str = " ".join(f'"{t}"' for t in skin)
+                lines.append(f'\t{{ {skin_str} }}')
+            lines.append("}\n")
 
         lines.append("")
 
@@ -339,5 +377,23 @@ class QCParser:
 
         # 7. Apply Unique Attachments
         master.attachments = list(unique_attachments.values())
+
+        # 8. Merge Texture Groups
+        max_skins = 0
+        for qc in list_of_qcs:
+            for tg in qc.texturegroups:
+                if len(tg["skins"]) > max_skins:
+                    max_skins = len(tg["skins"])
+
+        if max_skins > 0:
+            master_tg = {"name": "skinfamilies", "skins": [[] for _ in range(max_skins)]}
+            for qc in list_of_qcs:
+                if qc.texturegroups:
+                    tg = qc.texturegroups[0]  # Usually only one texturegroup exists
+                    for skin_idx in range(max_skins):
+                        # If this QC has this skin index, use it. Otherwise, fallback to its base skin (index 0)
+                        local_skin_idx = skin_idx if skin_idx < len(tg["skins"]) else 0
+                        master_tg["skins"][skin_idx].extend(tg["skins"][local_skin_idx])
+            master.texturegroups.append(master_tg)
 
         return master

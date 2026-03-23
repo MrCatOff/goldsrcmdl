@@ -7,6 +7,8 @@ import shutil
 import glob
 import copy
 from collections import defaultdict
+from lib2to3.fixes.fix_renames import alternates
+
 from valve.QCParser import QCParser
 from valve.SMDParser import SMDParser
 
@@ -22,6 +24,12 @@ parser.add_argument(
     type=str,
     default="storage/decompiled",
     help="Decompiled files (default: %(default)s)"
+)
+parser.add_argument(
+    "--skins-dir",
+    type=str,
+    default="storage/skins",
+    help="Skins directory (default: %(default)s)"
 )
 parser.add_argument(
     "--temp-dir",
@@ -64,8 +72,82 @@ parser.add_argument(
 args = parser.parse_args()
 
 
+class SkinManager:
+    def __init__(self, config_path='config/skins.ini'):
+        self.config_path = config_path
+        self.config = configparser.ConfigParser()
+
+        # This will hold your parsed data in the format:
+        # { 'model_name': { 'base_texture.bmp': ['skin1.bmp', 'skin2.bmp'] } }
+        self.skins = defaultdict(dict)
+
+        # Define default structure in case the file doesn't exist
+        self.defaults = {
+            'FolderName:0': {
+                'original': 'TextureName.BMP',
+                'skin': 'SkinPath.BMP'
+            },
+            'FolderName:1': {
+                'original': 'TextureName2.BMP',
+                'skin': 'SkinPath2.BMP'
+            }
+        }
+
+        self.load_or_create_config()
+
+    def load_or_create_config(self):
+        """Reads config; if missing, creates it with default values."""
+        if not os.path.exists(self.config_path):
+            # Write defaults to the config parser
+            for section, values in self.defaults.items():
+                self.config[section] = values
+
+            with open(self.config_path, 'w') as configfile:
+                self.config.write(configfile)
+            print(f"Created default skins config at: {self.config_path}")
+        else:
+            self.config.read(self.config_path)
+
+        # Cache values into the requested nested dictionary format
+        self._parse_skins()
+
+    def _parse_skins(self):
+        """Parses the loaded INI sections into the nested dictionary."""
+        for section in self.config.sections():
+            # Ensure the section matches the [model:texture] format
+            if ':' not in section:
+                continue
+
+            # Split section name into model and base texture
+            model_name, base_texture = section.split(':', 1)
+            model_name = model_name.strip()
+            base_texture = base_texture.strip()
+
+            # Retrieve the 'skin' key from the section
+            originals = [skin.strip() for skin in self.config[section].get('original', '').split(',')]
+            skins = [skin.strip() for skin in self.config[section].get('skin', '').split(',')]
+
+            if len(originals) == len(skins):
+                self.skins[model_name][base_texture] = {
+                    "originals": originals,
+                    "skins": skins
+                }
+
+    def get_skins_for_model(self, model_name):
+        """Helper method to easily fetch all skin mapping for a specific model."""
+        return self.skins.get(model_name, {}).values()
+
+    def get_skins_for_texture(self, model_name, texture_name):
+        """Helper method to easily fetch all skin for a specific texture."""
+        return self.skins.get(model_name, {}).get(texture_name, [])
+
+    def __str__(self):
+        """Prints the dictionary cleanly for debugging."""
+        return str(dict(self.skins))
+
+
 class BoneManager:
-    def __init__(self, config_path='bones-config.ini'):
+    def __init__(self, config_path='config/bones.ini'):
         self.patterns = None
         self.prefixes = None
         self.explicit_bones = None
@@ -120,7 +202,7 @@ class BoneManager:
 
 
 class SequenceNormalizer:
-    def __init__(self, config_path='sequence-config.ini'):
+    def __init__(self, config_path='config/sequence.ini'):
         self.config_path = config_path
         self.config = configparser.ConfigParser()
 
@@ -170,6 +252,7 @@ class MDLCombiner:
     def __init__(self, configuration):
         self.compiler = str(configuration.compiler)
         self.input_dir = str(configuration.input_dir)
+        self.skins_dir = str(configuration.skins_dir)
         self.build_dir = str(configuration.build_dir)
         self.temp_dir = str(configuration.temp_dir)
         self.output_mdl = str(configuration.output_mdl)
@@ -178,6 +261,7 @@ class MDLCombiner:
         self.mode = configuration.mode
         self.bone_manager = BoneManager()
         self.sequence_normalizer = SequenceNormalizer()
+        self.skin_manager = SkinManager()
         self.model_configuration = {
             "GENERAL": {
                 "model": self.output_mdl,
@@ -420,6 +504,44 @@ class MDLCombiner:
                     texture_name = f"texture_{weapon_name}_{i}.BMP"
                     shutil.copy(os.path.join(src_path, texture), os.path.join(temp_path, texture_name))
                     shutil.copy(os.path.join(src_path, texture), os.path.join(self.temp_dir, texture_name))
+
+                    # Get the alternate skins for this specific texture
+                    # alt_skins = self.skin_manager.skins.get(folder_name, dict()).values()
+                    #
+                    #
+                    # print([d['original'] for d in self.skin_manager.skins.get('FolderName', dict()).values()])
+                    # print([d['skin'] for d in self.skin_manager.skins.get('FolderName', dict()).values()])
+                    # if alt_skins:
+                    #     print(alt_skins)
+                    #     # 1. First, register the BASE texture as Skin 0
+                    #     qc.add_skin_family([texture_name])
+                    #
+                    #     # 2. Then loop through and register each alternate texture as Skin 1, Skin 2, etc.
+                    #     for skin in alt_skins:
+                    #         alt_texture_name = f"texture_{weapon_name}_{texture_idx}.BMP"
+                    #         shutil.copy(os.path.join(self.skins_dir, skin), os.path.join(temp_path, alt_texture_name))
+                    #         shutil.copy(os.path.join(self.skins_dir, skin),
+                    #                     os.path.join(self.temp_dir, alt_texture_name))
+                    #
+                    #         # Add this alternate texture in its own separate { } block
+                    #         qc.add_skin_family([alt_texture_name])
+                    #
+                    #         texture_idx += 1
+
+                texture_idx = len(textures)
+                for skin in self.skin_manager.get_skins_for_model(folder_name):
+                    originals = [f"texture_{weapon_name}_{textures.index(texture)}.BMP" for texture in skin['originals']]
+                    qc.add_skin_family(originals)
+                    alternate_skins = []
+                    for alternate_skin in skin['skins']:
+                        alt_texture_name = f"texture_{weapon_name}_{texture_idx}.BMP"
+                        shutil.copy(os.path.join(self.skins_dir, alternate_skin),
+                                    os.path.join(temp_path, alt_texture_name))
+                        shutil.copy(os.path.join(self.skins_dir, alternate_skin),
+                                    os.path.join(self.temp_dir, alt_texture_name))
+                        alternate_skins.append(alt_texture_name)
+                        texture_idx += 1
+                    qc.add_skin_family(alternate_skins)
 
                 with open(os.path.join(temp_path, f"{weapon_name}.qc"), 'w') as weapon_qc:
                     qc.filepath = os.path.join(temp_path, f"{weapon_name}.qc")
