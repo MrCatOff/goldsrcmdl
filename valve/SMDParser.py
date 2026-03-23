@@ -3,8 +3,9 @@ from collections import defaultdict
 
 
 class SMDParser:
-    def __init__(self, filepath, parse = False):
+    def __init__(self, filepath, parse = False, mode = "v"):
         self.filepath = filepath
+        self.mode = mode
         self.nodes = []
         self.skeleton = {}
         self.triangles = []
@@ -86,9 +87,14 @@ class SMDParser:
         print(f"Skeleton frames: {len(self.skeleton)}")
         print(f"Triangles found: {len(self.triangles)}")
 
-    def patch_bones(self, weapon_suffix, is_shared_bone_func):
+    def patch_bones(self, bone_suffix, is_shared_bone_func):
         """Applies bone patching logic directly to the parsed data structures."""
         if not self.nodes:
+            return
+        
+        if self.mode != "v":
+            for n in self.nodes:
+                n["name"] += bone_suffix
             return
 
         bone01_id = next((n["id"] for n in self.nodes if n["name"].lower() == "bone01"), None)
@@ -106,7 +112,7 @@ class SMDParser:
         # Add suffixes to weapon-specific bones
         for n in self.nodes:
             if not is_shared_bone_func(n["name"]):
-                n["name"] += weapon_suffix
+                n["name"] += bone_suffix
 
         # Inject Universal_Root if missing
         new_root_old_id = None

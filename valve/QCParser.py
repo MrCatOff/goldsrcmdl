@@ -2,8 +2,9 @@ import shlex
 
 
 class QCParser:
-    def __init__(self, filepath=None, parse = False):
+    def __init__(self, filepath=None, parse = False, mode = "v"):
         self.filepath = filepath
+        self.mode = mode
         self.modelname = ""
         self.cd = ""
         self.cdtexture = ""
@@ -17,7 +18,7 @@ class QCParser:
         if parse:
             self.parse()
 
-    def patch_bones(self, weapon_suffix, is_shared_bone_func):
+    def patch_bones(self, bone_suffix, is_shared_bone_func):
         """
         Applies the weapon suffix to any non-shared bones in the QC file
         (specifically in hitboxes and attachments) so they match the patched SMDs.
@@ -26,15 +27,15 @@ class QCParser:
         for att in self.attachments:
             if len(att) > 1:
                 bone_name = att[1]
-                if not is_shared_bone_func(bone_name):
-                    att[1] = bone_name + weapon_suffix
+                if not is_shared_bone_func(bone_name) or self.mode != "v":
+                    att[1] = bone_name + bone_suffix
 
         # Patch Hitboxes (Format: [group, bone_name, minX, minY, minZ, maxX, maxY, maxZ])
         for hb in self.hitboxes:
             if len(hb) > 1:
                 bone_name = hb[1]
-                if not is_shared_bone_func(bone_name):
-                    hb[1] = bone_name + weapon_suffix
+                if not is_shared_bone_func(bone_name) or self.mode != "v":
+                    hb[1] = bone_name + bone_suffix
 
     def parse(self):
         if not self.filepath:

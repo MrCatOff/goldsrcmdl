@@ -55,7 +55,7 @@ parser.add_argument(
     "--mode",
     type=str,
     default="v",
-    help="Model worker mode (default: %(default), Allow: v, p, w)"
+    help="Model worker mode (default: %(default)s, Allow: v, p, w)"
 )
 
 
@@ -174,6 +174,7 @@ class MDLCombiner:
         self.output_mdl = configuration.output_mdl
         self.output_qc = configuration.output_qc
         self.output_ini = configuration.output_ini
+        self.mode = configuration.mode
         self.bone_manager = BoneManager()
         self.sequence_normalizer = SequenceNormalizer()
         self.model_configuration = {
@@ -262,7 +263,7 @@ class MDLCombiner:
         print(f"Found {len(weapon_folders)} weapon folders.\n")
 
         seq_last_idx = 0
-        combined_qc = QCParser()
+        combined_qc = QCParser("", False, self.mode)
         combined_qc.modelname = self.output_mdl
         combined_qc.cd = "."
         combined_qc.cdtexture = "."
@@ -293,7 +294,7 @@ class MDLCombiner:
 
             for qc_file in qc_files:
                 print(f"Processing QC file: {qc_file}")
-                qc = QCParser(qc_file, True)
+                qc = QCParser(qc_file, True, self.mode)
                 sequences = []
                 for i, sequence in enumerate(qc.sequences):
                     normalize_name = self.sequence_normalizer.normalize(sequence['name'])
@@ -303,7 +304,7 @@ class MDLCombiner:
                     for j, smd_path in enumerate(sequence['smdfiles']):
                         smd_name = f"{normalize_name}_{j}"
                         smd_file_name = f"{smd_name}.smd"
-                        smd = SMDParser(os.path.join(src_path, str(smd_path).replace('\\', '/') + '.smd'), True)
+                        smd = SMDParser(os.path.join(src_path, str(smd_path).replace('\\', '/') + '.smd'), True, self.mode)
 
                         with open(os.path.join(sequences_path, smd_file_name), 'w') as smd_file:
                             smd_file.write(str(smd))
@@ -331,7 +332,7 @@ class MDLCombiner:
                         if not model['smd']: continue
                         smd_name = f"{weapon_name}_{i}_{j}"
                         smd_file = f"{smd_name}.smd"
-                        smd = SMDParser(os.path.join(src_path, str(model['smd']).replace('\\', '/') + '.smd'), True)
+                        smd = SMDParser(os.path.join(src_path, str(model['smd']).replace('\\', '/') + '.smd'), True, self.mode)
 
                         triangles = []
                         for triangle in smd.triangles:
@@ -364,7 +365,7 @@ class MDLCombiner:
                 models_qc.append(qc)
 
             for smd_path in glob.glob(os.path.join(temp_path, "**/*.smd"), recursive=True):
-                smd = SMDParser(smd_path, True)
+                smd = SMDParser(smd_path, True, self.mode)
                 smd.patch_bones(f"_TYPE{index}", self.bone_manager.is_shared_bone)
                 with open(smd_path, "w") as f:
                     f.write(str(smd))
