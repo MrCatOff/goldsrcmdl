@@ -18,23 +18,29 @@ class QCParser:
         if parse:
             self.parse()
 
-    def patch_bones(self, bone_suffix, is_shared_bone_func):
+    def patch_bones(self, bone_suffix, is_shared_bone_func, conflict_set=None):
         """
         Applies the weapon suffix to any non-shared bones in the QC file
         (specifically in hitboxes and attachments) so they match the patched SMDs.
         """
+
+        if conflict_set is None:
+            conflict_set = set()
+
         # Patch Attachments (Format: [name, bone_name, x, y, z, ...])
         for att in self.attachments:
             if len(att) > 1:
+                name_low = att[1].lower()
                 bone_name = att[1]
-                if not is_shared_bone_func(bone_name) or self.mode != "v":
+                if not is_shared_bone_func(name_low) or name_low in conflict_set or self.mode != "v":
                     att[1] = bone_name + bone_suffix
 
         # Patch Hitboxes (Format: [group, bone_name, minX, minY, minZ, maxX, maxY, maxZ])
         for hb in self.hitboxes:
             if len(hb) > 1:
+                name_low = hb[1].lower()
                 bone_name = hb[1]
-                if not is_shared_bone_func(bone_name) or self.mode != "v":
+                if not is_shared_bone_func(name_low) or name_low in conflict_set or self.mode != "v":
                     hb[1] = bone_name + bone_suffix
 
     def parse(self):

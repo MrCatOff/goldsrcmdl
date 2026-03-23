@@ -5,6 +5,7 @@ import re
 import shutil
 import glob
 import copy
+from collections import defaultdict
 from valve.QCParser import QCParser
 from valve.SMDParser import SMDParser
 
@@ -191,6 +192,71 @@ class MDLCombiner:
         if not os.path.exists(self.temp_dir):
             raise FileNotFoundError(f"Temp directory missing: {self.input_dir}")
 
+    def analyze_bone_hierarchies(self, weapon_folders):
+        bone_parent_occurrences = defaultdict(list)
+        weapon_bone_parents = defaultdict(dict)
+
+        for w_idx, folder_name in enumerate(weapon_folders):
+            work_path = os.path.join(self.input_dir, folder_name)
+            print(work_path)
+            for smd_file in glob.glob(os.path.join(work_path, "**/*.smd"), recursive=True):
+                smd = SMDParser(smd_file, True)
+                nodes = smd.nodes
+                if not nodes: continue
+
+                # Predict the Universal_Root normalization
+                bone01_id = next((n["id"] for n in nodes if n["name"].lower() == "bone01"), None)
+                master_root_id = next((n["parent"] for n in nodes if n["id"] == bone01_id), None)
+                need_inject_root = (master_root_id == -1 or master_root_id is None)
+
+                id_to_name = {n["id"]: n["name"] for n in nodes}
+                id_to_name[-1] = "Universal_Root"
+
+                for n in nodes:
+                    name_low = n["name"].lower()
+                    parent_id = n["parent"]
+
+                    if parent_id == -1:
+                        parent_name = "universal_root"
+                    else:
+                        parent_name = id_to_name.get(parent_id, "Unknown").lower()
+                        if not need_inject_root and parent_id == master_root_id:
+                            parent_name = "universal_root"
+
+                    weapon_bone_parents[w_idx][name_low] = parent_name
+
+            # Register occurrences uniquely per weapon
+            for name_low, parent_name in weapon_bone_parents[w_idx].items():
+                if self.bone_manager.is_shared_bone(name_low):
+                    bone_parent_occurrences[name_low].append((w_idx, parent_name))
+
+        weapon_conflict_sets = defaultdict(set)
+
+        # Identify direct conflicts (bones with non-consensus parents or unshared parents)
+        for bone_name, occurrences in bone_parent_occurrences.items():
+            parent_counts = defaultdict(int)
+            for w_idx, p_name in occurrences:
+                parent_counts[p_name] += 1
+
+            consensus_parent = max(parent_counts.items(), key=lambda x: x[1])[0]
+
+            for w_idx, p_name in occurrences:
+                if p_name != consensus_parent or not self.bone_manager.is_shared_bone(p_name):
+                    weapon_conflict_sets[w_idx].add(bone_name)
+
+        # Cascade conflicts down the bone tree
+        for w_idx, bone_parents in weapon_bone_parents.items():
+            conflict_set = weapon_conflict_sets[w_idx]
+            changed = True
+            while changed:
+                changed = False
+                for child, parent in bone_parents.items():
+                    if child not in conflict_set and parent in conflict_set:
+                        conflict_set.add(child)
+                        changed = True
+
+        return weapon_conflict_sets
+
     @staticmethod
     def normalize_and_merge_hitboxes(master_qc, list_of_child_qcs):
         unique_hitboxes = {}
@@ -271,6 +337,8 @@ class MDLCombiner:
         combined_qc.other_commands.append(['$cliptotextures'])
 
         models_qc = []
+
+        conflict_set = self.analyze_bone_hierarchies(weapon_folders)
 
         for index, folder_name in enumerate(weapon_folders):
             print(f"Processing folder: {folder_name}")
@@ -361,12 +429,12 @@ class MDLCombiner:
                     qc.filepath = os.path.join(temp_path, f"{weapon_name}.qc")
                     weapon_qc.write(str(qc))
 
-                qc.patch_bones(f"_TYPE{index}", self.bone_manager.is_shared_bone)
+                qc.patch_bones(f"_TYPE{index}", self.bone_manager.is_shared_bone, conflict_set[index])
                 models_qc.append(qc)
 
             for smd_path in glob.glob(os.path.join(temp_path, "**/*.smd"), recursive=True):
                 smd = SMDParser(smd_path, True, self.mode)
-                smd.patch_bones(f"_TYPE{index}", self.bone_manager.is_shared_bone)
+                smd.patch_bones(f"_TYPE{index}", self.bone_manager.is_shared_bone, conflict_set[index])
                 with open(smd_path, "w") as f:
                     f.write(str(smd))
 
@@ -389,8 +457,8 @@ class MDLCombiner:
                 else:
                     combined_qc.bodygroups[index]['models'].append({"type": "blank"})
 
-        MDLCombiner.normalize_and_merge_hitboxes(combined_qc, models_qc)
-        MDLCombiner.normalize_and_merge_attachments(combined_qc, models_qc)
+        # MDLCombiner.normalize_and_merge_hitboxes(combined_qc, models_qc)
+        # MDLCombiner.normalize_and_merge_attachments(combined_qc, models_qc)
 
         with open(os.path.join(self.temp_dir, self.output_qc), 'w') as main_qc:
             main_qc.write(str(combined_qc))

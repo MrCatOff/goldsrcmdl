@@ -87,11 +87,15 @@ class SMDParser:
         print(f"Skeleton frames: {len(self.skeleton)}")
         print(f"Triangles found: {len(self.triangles)}")
 
-    def patch_bones(self, bone_suffix, is_shared_bone_func):
+    def patch_bones(self, bone_suffix, is_shared_bone_func, conflict_set=None):
         """Applies bone patching logic directly to the parsed data structures."""
         if not self.nodes:
             return
-        
+
+        # Default to an empty set if no conflict_set is provided
+        if conflict_set is None:
+            conflict_set = set()
+
         if self.mode != "v":
             for n in self.nodes:
                 n["name"] += bone_suffix
@@ -109,9 +113,13 @@ class SMDParser:
                     n["parent"] = -1
                     break
 
-        # Add suffixes to weapon-specific bones
+        # ---------------------------------------------------------
+        # UPDATED LOGIC: Add suffixes to weapon-specific bones
+        # AND dynamically conflicted bones (to prevent parent errors)
+        # ---------------------------------------------------------
         for n in self.nodes:
-            if not is_shared_bone_func(n["name"]):
+            name_low = n["name"].lower()
+            if not is_shared_bone_func(name_low) or name_low in conflict_set:
                 n["name"] += bone_suffix
 
         # Inject Universal_Root if missing
@@ -160,7 +168,7 @@ class SMDParser:
                     b["bone_id"] = old_to_new[b["bone_id"]]
 
             # Inject animation frames for the new root so it doesn't crash
-            if need_inject_root:
+            if need_inject_root and new_root_old_id is not None:
                 injected_id = old_to_new[new_root_old_id]
                 bones.append({
                     "bone_id": injected_id,
@@ -176,6 +184,96 @@ class SMDParser:
             for v in tri["vertices"]:
                 if v["parent_bone"] in old_to_new:
                     v["parent_bone"] = old_to_new[v["parent_bone"]]
+
+    # def patch_bones(self, bone_suffix, is_shared_bone_func):
+    #     """Applies bone patching logic directly to the parsed data structures."""
+    #     if not self.nodes:
+    #         return
+    #
+    #     if self.mode != "v":
+    #         for n in self.nodes:
+    #             n["name"] += bone_suffix
+    #         return
+    #
+    #     bone01_id = next((n["id"] for n in self.nodes if n["name"].lower() == "bone01"), None)
+    #     master_root_id = next((n["parent"] for n in self.nodes if n["id"] == bone01_id), None)
+    #
+    #     need_inject_root = (master_root_id == -1 or master_root_id is None)
+    #
+    #     if not need_inject_root:
+    #         for n in self.nodes:
+    #             if n["id"] == master_root_id:
+    #                 n["name"] = "Universal_Root"
+    #                 n["parent"] = -1
+    #                 break
+    #
+    #     # Add suffixes to weapon-specific bones
+    #     for n in self.nodes:
+    #         if not is_shared_bone_func(n["name"]):
+    #             n["name"] += bone_suffix
+    #
+    #     # Inject Universal_Root if missing
+    #     new_root_old_id = None
+    #     if need_inject_root:
+    #         new_root_old_id = max((n["id"] for n in self.nodes), default=-1) + 1
+    #         self.nodes.append({"id": new_root_old_id, "name": "Universal_Root", "parent": -1})
+    #         for n in self.nodes:
+    #             if n["parent"] == -1 and n["id"] != new_root_old_id:
+    #                 n["parent"] = new_root_old_id
+    #
+    #     # Sort to ensure parents are defined before children
+    #     children = defaultdict(list)
+    #     root_ids = []
+    #     for n in self.nodes:
+    #         if n["parent"] == -1:
+    #             root_ids.append(n["id"])
+    #         else:
+    #             children[n["parent"]].append(n["id"])
+    #
+    #     sorted_nodes = []
+    #     queue = root_ids[:]
+    #     while queue:
+    #         curr = queue.pop(0)
+    #         node_dict = next(n for n in self.nodes if n["id"] == curr)
+    #         sorted_nodes.append(node_dict)
+    #         queue.extend(children[curr])
+    #
+    #     # Create Old-to-New ID Map and Update Node IDs
+    #     old_to_new = {}
+    #     for new_id, n in enumerate(sorted_nodes):
+    #         old_to_new[n["id"]] = new_id
+    #
+    #     for n in sorted_nodes:
+    #         n["id"] = old_to_new[n["id"]]
+    #         if n["parent"] != -1:
+    #             n["parent"] = old_to_new[n["parent"]]
+    #
+    #     # Sort the actual nodes list by their new IDs
+    #     self.nodes = sorted(sorted_nodes, key=lambda x: x["id"])
+    #
+    #     # Update Skeleton Animation IDs
+    #     for time, bones in self.skeleton.items():
+    #         for b in bones:
+    #             if b["bone_id"] in old_to_new:
+    #                 b["bone_id"] = old_to_new[b["bone_id"]]
+    #
+    #         # Inject animation frames for the new root so it doesn't crash
+    #         if need_inject_root:
+    #             injected_id = old_to_new[new_root_old_id]
+    #             bones.append({
+    #                 "bone_id": injected_id,
+    #                 "pos": [0.0, 0.0, 0.0],
+    #                 "rot": [0.0, 0.0, 0.0]
+    #             })
+    #
+    #         # Sort bones in the frame to maintain order
+    #         bones.sort(key=lambda x: x["bone_id"])
+    #
+    #     # Update Mesh Vertices (Triangles) IDs
+    #     for tri in self.triangles:
+    #         for v in tri["vertices"]:
+    #             if v["parent_bone"] in old_to_new:
+    #                 v["parent_bone"] = old_to_new[v["parent_bone"]]
 
     def __str__(self):
         """Returns the parsed data in the standard SMD file format."""
